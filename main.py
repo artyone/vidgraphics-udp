@@ -7,13 +7,13 @@ from itertools import count, cycle
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QIcon, QPalette, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPalette, QPixmap
 from PyQt5.QtNetwork import QUdpSocket
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QHBoxLayout,
                              QInputDialog, QLabel, QMainWindow, QMenu,
-                             QMessageBox, QPushButton, QSlider, QSplitter,
-                             QStyle, QToolBar, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QMessageBox, QPushButton, QSlider, QToolBar,
+                             QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                             QWidget)
 
 
 class MainData:
@@ -108,7 +108,6 @@ class MainData:
     def add_data(self, name, data):
         value = getattr(self, name)
         value.extend(data)
-        # setattr(self, name, value)
 
     def cut_data(self):
         for category in self.categories.values():
@@ -120,8 +119,14 @@ class MainData:
     def get_object(self, name):
         return getattr(self, name)
 
-    # def get_time(self, name):
-    #     return getattr(self, 'time_src')
+    def get_time(self, index):
+        if len(getattr(self, 'time_src')) == 0:
+            return None
+        if index < 0:
+            return getattr(self, 'time_src')[0]
+        if index >= len(getattr(self, 'time_src')):
+            return getattr(self, 'time_src')[-1]
+        return getattr(self, 'time_src')[index]
 
     def add_byte_data(self, data):
         dt = np.dtype([
@@ -262,7 +267,7 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("VID GRAPH UPD v.2024.03.13")
+        self.setWindowTitle("VID GRAPH UPD v.2024.03.19")
         self.setGeometry(0, 0, 1350, 768)
 
         main_widget = QWidget()
@@ -313,15 +318,7 @@ class MainWindow(QMainWindow):
         pos = Qt.ToolBarArea.TopToolBarArea
         toolbar = QToolBar()
         toolbar.addAction(self.start_process_action)
-
         toolbar.addSeparator()
-        # self.diss_combobox = QComboBox()
-        # self.diss_combobox.addItems(
-        #     ['1', '2'])
-        # self.diss_combobox.activated.connect(self.set_data)
-        # self.diss_combobox.setFixedWidth(150)
-        # toolbar.addWidget(self.diss_combobox)
-        # toolbar.addSeparator()
 
         toolbar.addWidget(QLabel(' Масштаб:'))
         self.slider_resolution = QSlider(Qt.Orientation.Horizontal)
@@ -376,6 +373,7 @@ class MainWindow(QMainWindow):
         self.view_menu.setTitle('Пресеты графиков')
         toolbar.addAction(self.view_menu.menuAction())
         self.update_view_menu()
+        toolbar.addSeparator()
 
         self.addToolBar(pos, toolbar)
 
@@ -497,6 +495,8 @@ class MainWindow(QMainWindow):
             widget.setXLink(main_child)
             widget.getAxis('bottom').setStyle(showValues=False)
 
+        main_child.getAxis('bottom').setStyle(showValues=True)
+
     def create_graph_window(self, graph_names=False):
         if not graph_names:
             graph_names = self.left_widget.get_checked_element()
@@ -612,6 +612,14 @@ class GraphWidget(pg.PlotWidget):
         self.graph_names = graph_names
         self.main_window = main_window
         self.resolution = 0
+
+        self.region = pg.LinearRegionItem()
+        self.region.sigRegionChanged.connect(self.update_region)
+        self.addItem(self.region)
+        self.region.hide()
+        self.region_label = pg.InfLineLabel(
+            self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
+
         self.curves = {}
         self.getAxis('left').setWidth(50)
 
@@ -620,12 +628,16 @@ class GraphWidget(pg.PlotWidget):
             lambda: self.main_window.delete_graph_window(self.graph_names))
         self.scene().contextMenu.append(close_action)
 
+        self.vLine = pg.InfiniteLine(angle=90, movable=False)
+        self.hLine = pg.InfiniteLine(angle=0, movable=False)
+        self.addItem(self.vLine, ignoreBounds=True)
+        self.addItem(self.hLine, ignoreBounds=True)
+
         self.create_graphs()
 
     def create_graphs(self):
         self.showGrid(x=True, y=True)
         self.apply_theme('black')
-        # self.setMenuEnabled(False)
         self.setClipToView(True)
         self.setDownsampling(auto=True, mode='peak')
 
@@ -639,58 +651,52 @@ class GraphWidget(pg.PlotWidget):
             self.addItem(curve)
             self.curves[name] = curve
 
-        # self.proxy = pg.SignalProxy(
-        #     self.scene().sigMouseMoved,
-        #     rateLimit=30,
-        #     slot=self.mouse_moved
-        # )
-
-        # self.scene().sigMouseClicked.connect(self.mouse_click_event)
         self.scene().sigMouseMoved.connect(self.mouse_moved)
 
     def mouse_moved(self, ev):
         if self.sceneBoundingRect().contains(ev):
             mousePoint = self.getPlotItem().vb.mapSceneToView(ev)
-            self.pos_x = float(mousePoint.x())
-            self.pos_y = float(mousePoint.y())
+            self.vLine.setPos(mousePoint)
+            self.hLine.setPos(mousePoint)
+            self.vLine.show()
+            self.hLine.show()
+            curr_time = self.main_window.data.get_time(int(mousePoint.x()))
             self.setToolTip(
-                # x: <b>{self.pos_x:.2f}</b>,<br> y:
-                f'<b>{self.pos_y:.3f}</b>'
+                f'Текущий пакет: <b>{mousePoint.x():.3f}</b><br>'
+                + f'Текущее значение: <b>{mousePoint.y():.3f}</b><br>'
+                + f'Текущее время ДИСС: <b>{curr_time}</b><br>'
             )
 
-    def clear_other_display_text(self):
-        widgets = self.main_window.graph_widgets.values()
-        for widget in widgets:
-            if widget is not self:
-                widget.display_text.setText('')
-
-    # def mouse_moved(self, e) -> None:
-    #     '''
-    #     Метод высплывающей подсказки по координатам при перемещении мыши.
-    #     '''
-    #     pos = e[0]
-    #     if self.sceneBoundingRect().contains(pos):
-    #         mousePoint = self.getPlotItem().vb.mapSceneToView(pos)
-    #         x = round(float(mousePoint.x()))
-    #         y = round(float(mousePoint.y()), 1)
-    #         times = ''
-    #         for name in self.curves:
-    #             data = self.main_window.data.get_time(name)
-    #             if data is None or len(data) < 1:
-    #                 continue
-    #             data = data[-self.resolution:]
-    #             if x < 0 or x >= len(data):
-    #                 continue
-    #             times += f'<br>Время {name}: <b>{data[x]}</b>'
-
-    #         self.setToolTip(
-    #             f'Номер пакета: <b>{round(x)}</b><br> Значение: <b>{round(y, 1)}</b>{times}'
-    #         )
+    def leaveEvent(self, ev):
+        self.vLine.hide()
+        self.hLine.hide()
+        return super().leaveEvent(ev)
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.MiddleButton:
             self.main_window.delete_graph_window(self.graph_names)
+        if ev.button() == Qt.LeftButton and ev.modifiers() & Qt.ControlModifier:
+            mousePoint = self.getPlotItem().vb.mapSceneToView(ev.pos())
+            self.region.show()
+            self.region.setRegion(
+                (mousePoint.x(), mousePoint.x())
+            )
+            self.region.show()
+
         return super().mousePressEvent(ev)
+
+    def update_region(self):
+        minX, maxX = self.region.getRegion()
+        min_time = self.main_window.data.get_time(int(minX))
+        max_time = self.main_window.data.get_time(int(maxX))
+        print(min_time, max_time)
+        if not all((min_time, max_time)):
+            self.region_label.deleteLater()
+            return
+        self.region_label.deleteLater()
+        self.region_label = pg.InfLineLabel(
+            self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
+        self.region_label.setText(f'Временной отрезок: {max_time - min_time}')
 
     def apply_theme(self, color):
         self.setBackground(color)
@@ -709,27 +715,12 @@ class GraphWidget(pg.PlotWidget):
     def update_data(self):
         if self.resolution != self.main_window.resolution:
             self.resolution = self.main_window.resolution
-            self.setXRange(0, self.resolution * 0.0021)
+            self.setXRange(0, self.resolution)
         for name, curve in self.curves.items():
             data = self.main_window.data.get_object(name)
             oy = data[-self.resolution:]
-            ox = np.arange(len(oy)) * 0.002
-            curve.setData(ox, oy)
-
-    # def mouse_click_event(self, ev):
-    #     if ev.button() == Qt.MouseButton.RightButton:
-    #         ev.accept()
-    #         self.context_menu(ev)
-    #         return
-    #     return super().mouse_click_event(ev)
-
-    # def context_menu(self, ev):
-    #     menu = QMenu()
-    #     close_action = QAction('Закрыть (Средняя клавиша мышки)')
-    #     close_action.triggered.connect(
-    #         lambda: self.main_window.delete_graph_window(self.graph_names))
-    #     menu.addAction(close_action)
-    #     menu.exec(ev.screenPos().toPoint())
+            ox = np.arange(len(oy))
+            curve.setData(ox, oy, clear=True, _callSync='off')
 
 
 class VidGraph(pg.PlotWidget):

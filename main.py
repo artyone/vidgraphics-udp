@@ -6,7 +6,7 @@ from itertools import count, cycle
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal, QSystemSemaphore, QSharedMemory
 from PyQt5.QtGui import QColor, QIcon, QPalette, QPixmap
 from PyQt5.QtNetwork import QUdpSocket
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QHBoxLayout,
@@ -31,15 +31,15 @@ class MainData:
                 'u_6V_m_028A_gnd', 'zad_izc'
             ],
             'coef': [
-                0.01, 1, 1, 1, 1,
-                1, 1, 1, 1, 1,
-                0.00244, 0.00244, 1, 0.00488, 1,
-                1, 0.00488, 0.00244, 0.00244, 0.00244,
-                1, 0.1, 1, 1, 0.1,
-                1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1,
-                1, 0.01,
+                0.01,    0.00244, 0.00244, 0.00244, 0.00244,
+                0.00244, 0.00244, 0.00894, 0.00244, 0.00244,
+                0.00244, 0.00244, 0.00244, 0.00488, 0.00244,
+                0.00244, 0.00488, 0.00244, 0.00244, 0.00244,
+                0.00244, 0.00244, 0.00244, 0.00244, 0.00244,
+                0.00488, 0.00244, 0.00488, 0.00244, 0.026851,
+                0.00747, 0.00488, 0.00244, 0.00244, 0.00244,
+                0.00488, 0.00244, 0.00244, 0.00244, 0.00244,
+                0.00244, 0.01,
             ],
             'types': [
                 np.uint16, np.int16, np.int16, np.int16, np.int16,
@@ -90,6 +90,48 @@ class MainData:
             'visible': True
         }
     }
+    columns_bits = [
+        [
+            'send_ARINC', 'u27_p', 'u27_ground', 'u27_A', 'u27_A1', 'u36B_m', 'u36A_m', 'u15_m'
+        ],
+        [
+            'u15v_p', 'u36C_m', 'u15V_bk', 'off_vob', 'off_V', 'off_ASU', 'block_VP', 'off_CU'
+        ],
+        [
+            'vkl_rrch', 'PR_27v', 'block_AB', 'bridge27V', 'VPG_27V', 'komm_ASD', 'block_DP', 'sinhro'
+        ],
+        [
+            'RIP', 'D5', 'DVA1', 'DVA2', 'DVA3', 'DVA4', 'kom_vn', 'kontr_toka_rzp'
+        ],
+        [
+            'kontr_zahv_apch', 'kontr_vn', 'EhV', 'AV', 'PR_U505', 'Zg_27V', 'Kom_No', 'VK'
+        ],
+        [
+            'komm_PP', 'kom_mem_ASD', 'ASP', 'Tg_RAZI', 'MD_k', 'Tg_ZHO', 'ZH_ZH', 'Si_k'
+        ],
+        [
+            'PPH', 'Sh_P2', 'izp_k', 'izr_k', 'strob_RZ', 'zona_1', 'zona_2', 'rpo'
+        ],
+        [
+            'AR', 'kom_rg_rv', 'sz', 'kom_ASD_k', 'Tg_ZH_Zh', 'kom_vp', 'null_1', 'null_2'
+        ],
+        [
+            'kontrol_27V_m_pit', 'kontrol_27V_m', 'kontrol_27V_p_pit', 'kontrol_27V_p', 'kontrol_27V_p_A0', 'kontrol_27V_p_A1', 'kontrol_27V_p_A2', 'kontrol_27V_p_A3'
+        ]
+    ]
+
+    dt = np.dtype([
+        ('pack_header', np.uint8, (1, )),
+        ('vid_data', np.uint8, 1024),
+        ('null_bytes', np.uint8, 2),
+        ('arinc_data', np.uint16, 9),
+        ('bit_data', np.uint8, 9),
+        ('null_bytes2', np.uint8, (1, )),
+        ('data_main', np.int16, 42),
+        ('null_bytes3', np.uint8, 56),
+        ('time_src', np.uint32, (1, )),
+        ('null_bytes4', np.uint8, 33)
+    ]).newbyteorder('>')
 
     def __init__(self):
         for category in self.categories.values():
@@ -113,36 +155,24 @@ class MainData:
         for category in self.categories.values():
             for name in category['headers']:
                 value = getattr(self, name)
-                setattr(self, name, value[-51_000:])
+                del value[:-51_000]
         self.counter = count()
 
     def get_object(self, name):
         return getattr(self, name)
 
     def get_time(self, index):
-        if len(getattr(self, 'time_src')) == 0:
+        time_src = getattr(self, 'time_src')
+        if not len(time_src):
             return None
         if index < 0:
-            return getattr(self, 'time_src')[0]
-        if index >= len(getattr(self, 'time_src')):
-            return getattr(self, 'time_src')[-1]
-        return getattr(self, 'time_src')[index]
+            return time_src[0]
+        if index >= len(time_src):
+            return time_src[-1]
+        return time_src[index]
 
     def add_byte_data(self, data):
-        dt = np.dtype([
-            ('pack_header', np.uint8, (1, )),
-            ('vid_data', np.uint8, 1024),
-            ('null_bytes', np.uint8, 2),
-            ('arinc_data', np.uint16, 9),
-            ('bit_data', np.uint8, 9),
-            ('null_bytes2', np.uint8, (1, )),
-            ('data_main', np.int16, 42),
-            ('null_bytes3', np.uint8, 56),
-            ('time_src', np.uint32, (1, )),
-            ('null_bytes4', np.uint8, 33)
-        ])
-        dt = dt.newbyteorder('>')
-        res = np.frombuffer(data, dtype=dt, count=-1)
+        res = np.frombuffer(data, dtype=self.dt, count=-1)
         self.unpack_data(res)
 
     def unpack_data(self, res):
@@ -156,37 +186,7 @@ class MainData:
         for index, col in enumerate(self.categories['arinc']['headers']):
             self.add_data(col, res['arinc_data'][:, index])
 
-        columns_bits = [
-            [
-                'send_ARINC', 'u27_p', 'u27_ground', 'u27_A', 'u27_A1', 'u36B_m', 'u36A_m', 'u15_m'
-            ],
-            [
-                'u15v_p', 'u36C_m', 'u15V_bk', 'off_vob', 'off_V', 'off_ASU', 'block_VP', 'off_CU'
-            ],
-            [
-                'vkl_rrch', 'PR_27v', 'block_AB', 'bridge27V', 'VPG_27V', 'komm_ASD', 'block_DP', 'sinhro'
-            ],
-            [
-                'RIP', 'D5', 'DVA1', 'DVA2', 'DVA3', 'DVA4', 'kom_vn', 'kontr_toka_rzp'
-            ],
-            [
-                'kontr_zahv_apch', 'kontr_vn', 'EhV', 'AV', 'PR_U505', 'Zg_27V', 'Kom_No', 'VK'
-            ],
-            [
-                'komm_PP', 'kom_mem_ASD', 'ASP', 'Tg_RAZI', 'MD_k', 'Tg_ZHO', 'ZH_ZH', 'Si_k'
-            ],
-            [
-                'PPH', 'Sh_P2', 'izp_k', 'izr_k', 'strob_RZ', 'zona_1', 'zona_2', 'rpo'
-            ],
-            [
-                'AR', 'kom_rg_rv', 'sz', 'kom_ASD_k', 'Tg_ZH_Zh', 'kom_vp', 'null_1', 'null_2'
-            ],
-            [
-                'kontrol_27V_m_pit', 'kontrol_27V_m', 'kontrol_27V_p_pit', 'kontrol_27V_p', 'kontrol_27V_p_A0', 'kontrol_27V_p_A1', 'kontrol_27V_p_A2', 'kontrol_27V_p_A3'
-            ]
-        ]
-
-        for i, val in enumerate(columns_bits):
+        for i, val in enumerate(self.columns_bits):
             bit_data = self.unpack_bits(val, res['bit_data'][:, i])
             for key, value in bit_data.items():
                 self.add_data(key, np.array(value))
@@ -247,6 +247,8 @@ class MainWindow(QMainWindow):
         self.app = app
         self.last_update = 0
         self.resolution = 10000
+        self.ui_update_interval = 0.5
+        self.last_ui_update_time = time.time()
         self.data = MainData()
         self.graph_widgets = {}
         self.graph_vid_widget = None
@@ -267,7 +269,7 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("VID GRAPH UPD v.2024.03.19")
+        self.setWindowTitle("VID GRAPH UPD v.2024.03.20")
         self.setGeometry(0, 0, 1350, 768)
 
         main_widget = QWidget()
@@ -286,7 +288,7 @@ class MainWindow(QMainWindow):
 
         self.right_graph_layout = QVBoxLayout()
         right_widget_layout.addLayout(self.right_graph_layout, 3)
-        self.right_graph_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_graph_layout.setContentsMargins(0, 0, 0, 1)
         self.right_graph_layout.setSpacing(0)
 
         self.right_vid_layout = QVBoxLayout()
@@ -330,17 +332,6 @@ class MainWindow(QMainWindow):
         self.slider_resolution.valueChanged.connect(
             self.slider_resolution_handler)
         toolbar.addWidget(self.slider_resolution)
-
-        toolbar.addSeparator()
-        toolbar.addWidget(QLabel(' Скорость обновления графиков:'))
-        self.slider_update = QSlider(Qt.Orientation.Horizontal)
-        self.slider_update.setFixedSize(100, 40)
-        self.slider_update.setMaximum(495)
-        self.slider_update.setMinimum(300)
-        self.slider_update.setTickInterval(10)
-        self.slider_update.setValue(500 - self.packet_for_update)
-        self.slider_update.valueChanged.connect(self.slider_update_handler)
-        toolbar.addWidget(self.slider_update)
 
         toolbar.addSeparator()
         toolbar.addWidget(QLabel(' Пакетов получено: '))
@@ -436,16 +427,12 @@ class MainWindow(QMainWindow):
         self.resolution = self.slider_resolution.value()
         self.update_graphs_threads.start()
 
-    def slider_update_handler(self):
-        self.packet_for_update = 500 - self.slider_update.value()
-
     def start_process(self):
         if self.process_started:
             self.stop_process()
             return
 
         self.process_started = True
-        self.received_packets_for_update = 0
 
         self.start_process_action.setIcon(QIcon('stop.png'))
         self.indicator_timer.start(500)
@@ -458,25 +445,26 @@ class MainWindow(QMainWindow):
         self.socket.close()
         self.received_packets = 0
         self.received_packets_label.setText(str(self.received_packets))
-        self.received_packets_for_update = 0
         self.indicator_label.set_red()
         self.indicator_timer.stop()
 
     def read_data(self):
         while self.socket.hasPendingDatagrams():
             self.received_packets += 1
-            self.received_packets_label.setText(f'{self.received_packets}')
 
             data, * _ = self.socket.readDatagram(1274)
             self.cache += data
 
-            self.update_data_threads.start()
+            if not self.update_data_threads.isRunning():
+                self.update_data_threads.start()
 
-            if self.received_packets_for_update >= self.packet_for_update:
+            if not self.update_graphs_threads.isRunning():
                 self.update_graphs_threads.start()
-                self.received_packets_for_update = 0
 
-            self.received_packets_for_update += 1
+            current_time = time.time()
+            if current_time - self.last_ui_update_time >= self.ui_update_interval:
+                self.received_packets_label.setText(f'{self.received_packets}')
+                self.last_ui_update_time = current_time
 
             self.last_update = time.time_ns()
 
@@ -611,11 +599,13 @@ class GraphWidget(pg.PlotWidget):
         super().__init__()
         self.graph_names = graph_names
         self.main_window = main_window
-        self.resolution = 0
+        self.resolution = 1
+        self.ox_cache = np.arange(self.resolution)
 
         self.region = pg.LinearRegionItem()
         self.region.sigRegionChanged.connect(self.update_region)
         self.addItem(self.region)
+        self.region.setZValue(10)
         self.region.hide()
         self.region_label = pg.InfLineLabel(
             self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
@@ -630,6 +620,8 @@ class GraphWidget(pg.PlotWidget):
 
         self.vLine = pg.InfiniteLine(angle=90, movable=False)
         self.hLine = pg.InfiniteLine(angle=0, movable=False)
+        self.vLine.hide()
+        self.hLine.hide()
         self.addItem(self.vLine, ignoreBounds=True)
         self.addItem(self.hLine, ignoreBounds=True)
 
@@ -639,15 +631,16 @@ class GraphWidget(pg.PlotWidget):
         self.showGrid(x=True, y=True)
         self.apply_theme('black')
         self.setClipToView(True)
-        self.setDownsampling(auto=True, mode='peak')
+        self.setDownsampling(auto=True, mode='subsample')
 
         for name in self.graph_names:
             color = next(self.colors)
-            pen = pg.mkPen(color=color, width=2)
+            pen = pg.mkPen(color=color, width=1)
             oy = self.main_window.data.get_object(
                 name)[-self.main_window.resolution:]
-            ox = np.arange(len(oy)) * 0.002
+            ox = np.arange(len(oy))
             curve = pg.PlotDataItem(ox, oy, name=name, pen=pen, connect='all')
+
             self.addItem(curve)
             self.curves[name] = curve
 
@@ -682,26 +675,28 @@ class GraphWidget(pg.PlotWidget):
                 (mousePoint.x(), mousePoint.x())
             )
             self.region.show()
-
         return super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.LeftButton and ev.modifiers() & Qt.ControlModifier:
+            self.region.hide()
+        return super().mouseReleaseEvent(ev)
 
     def update_region(self):
         minX, maxX = self.region.getRegion()
         min_time = self.main_window.data.get_time(int(minX))
         max_time = self.main_window.data.get_time(int(maxX))
-        print(min_time, max_time)
         if not all((min_time, max_time)):
-            self.region_label.deleteLater()
             return
-        self.region_label.deleteLater()
-        self.region_label = pg.InfLineLabel(
-            self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
+        # self.region_label.deleteLater()
+        # self.region_label = pg.InfLineLabel(
+        #     self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
         self.region_label.setText(f'Временной отрезок: {max_time - min_time}')
 
     def apply_theme(self, color):
         self.setBackground(color)
         legend_color = 'black' if color == 'white' else 'white'
-        pen = pg.mkPen(legend_color, width=1.0)
+        pen = pg.mkPen(legend_color, width=0.4)
         for axis in ['bottom', 'left']:
             axis_obj = self.getAxis(axis)
             axis_obj.setPen(pen)
@@ -713,14 +708,16 @@ class GraphWidget(pg.PlotWidget):
         )
 
     def update_data(self):
-        if self.resolution != self.main_window.resolution:
+        resolution_changed = self.resolution != self.main_window.resolution
+        if resolution_changed:
             self.resolution = self.main_window.resolution
             self.setXRange(0, self.resolution)
+            self.ox_cache = np.arange(self.resolution)
+
         for name, curve in self.curves.items():
             data = self.main_window.data.get_object(name)
             oy = data[-self.resolution:]
-            ox = np.arange(len(oy))
-            curve.setData(ox, oy, clear=True, _callSync='off')
+            curve.setData(self.ox_cache[:len(oy)], oy)
 
 
 class VidGraph(pg.PlotWidget):
@@ -736,16 +733,16 @@ class VidGraph(pg.PlotWidget):
         self.showGrid(x=True, y=True)
         self.apply_theme('black')
         self.setMenuEnabled(False)
-        self.setClipToView(True)
-        self.setDownsampling(auto=True, mode='peak')
         self.scene().sigMouseClicked.connect(self.mouse_click_event)
+        self.setDownsampling(auto=True, mode='subsample')
+        self.setClipToView(True)
 
-        pen = pg.mkPen(width=2)
+        pen = pg.mkPen(width=1)
         data = self.main_window.data.get_object(
             'vid_data')
 
         oy = data[self.pos] if len(data) else []
-        ox = list(range(len(oy)))
+        ox = np.arange(len(oy))
         curve = pg.PlotDataItem(ox, oy, name='vid_data',
                                 pen=pen, connect='all')
         self.addItem(curve)
@@ -764,7 +761,7 @@ class VidGraph(pg.PlotWidget):
     def apply_theme(self, color):
         self.setBackground(color)
         legend_color = 'black' if color == 'white' else 'white'
-        pen = pg.mkPen(legend_color, width=1.0)
+        pen = pg.mkPen(legend_color, width=0.4)
         for axis in ['bottom', 'left']:
             axis_obj = self.getAxis(axis)
             axis_obj.setPen(pen)
@@ -793,8 +790,34 @@ class VidGraph(pg.PlotWidget):
         super().closeEvent(ev)
 
 
-if __name__ == '__main__':
+def launch():
     app = QApplication(sys.argv)
+
+    window_id = 'vid_graphic_app'
+    shared_mem_id = 'vid_graphic_mem'
+    semaphore = QSystemSemaphore(window_id, 1)
+    semaphore.acquire()
+
+    if sys.platform != 'win32':
+        nix_fix_shared_mem = QSharedMemory(shared_mem_id)
+        if nix_fix_shared_mem.attach():
+            nix_fix_shared_mem.detach()
+
+    shared_memory = QSharedMemory(shared_mem_id)
+
+    if shared_memory.attach():  # attach a copy of the shared memory, if successful, the application is already running
+        is_running = True
+    else:
+        shared_memory.create(1)  # allocate a shared memory block of 1 byte
+        is_running = False
+
+    semaphore.release()
+
+    if is_running:  # if the application is already running, show the warning message
+        QMessageBox.warning(None, 'Программа уже запущена',
+                            'Копия программы уже запущена. Используйте её, либо закройте.')
+        return
+
     app.setStyle('Fusion')
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(10, 10, 10))
@@ -830,3 +853,7 @@ if __name__ == '__main__':
     window = MainWindow(app)
     window.show()
     app.exec()
+
+
+if __name__ == '__main__':
+    launch()

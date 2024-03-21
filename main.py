@@ -25,10 +25,21 @@ class MainData:
                 'EA', 'EH', 'current', 'signal_D', 'Unn',
                 'Una', 'D_analog', 'gamma', 'epsilon', 'psi',
                 'ARU', 'E_H_ap', 'E_g', 'E_v', 'E_A_ap',
-                'u_12V', 'u_12V_gnd', 'u_12V_m_018A', 'u_12V_m_018A_gnd', 'u_48V',
+                'u_12V', 'rrch_acp', 'u_12V_m_018A', 'u_12V_m_018A_gnd', 'u_48V',
                 'u_48V_gnd', 'u_8V', 'u_8V_gnd', 'u_6V_m_0075A', 'u_6V_m_gnd',
                 'u_12V_0075A', 'u_12V_0075A_gnd', 'u_6V', 'u_6V_gnd', 'u_6V_m_028A',
                 'u_6V_m_028A_gnd', 'zad_izc'
+            ],
+            'tooltip': [
+                'Метка дальности', 'текущие 27В', 'ток 36В С', 'ток 36В А', 'ток 36В В',
+                'ток 15В п', 'ток 15В м', 'ток 27В', 'ток', 'ток 5В',
+                'ток актив', 'ток реактив', 'ток', 'ток', 'ток',
+                'ток', 'ток', 'ток', 'ток', 'ток',
+                'ток', 'ток', 'ток', 'ток', 'ток',
+                'ток', 'ток', 'ток', 'ток', 'ток',
+                'ток', 'ток', 'ток', 'ток', 'ток',
+                'ток', 'ток', 'ток', 'ток', 'ток',
+                'ток', 'ток'
             ],
             'coef': [
                 0.01,    0.00244, 0.00244, 0.00244, 0.00244,
@@ -140,9 +151,9 @@ class MainData:
         self.counter = count()
 
     def __iter__(self):
-        for category in self.categories:
+        for category in self.categories.values():
             for name in category['headers']:
-                yield name, getattr(self, name)
+                yield name
 
     def clear_data(self):
         self.__init__()
@@ -246,7 +257,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.app = app
         self.last_update = 0
-        self.resolution = 10000
+        self.resolution = 50000
         self.ui_update_interval = 0.5
         self.last_ui_update_time = time.time()
         self.data = MainData()
@@ -269,7 +280,7 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("VID GRAPH UPD v.2024.03.20")
+        self.setWindowTitle("VID GRAPH UPD v.2024.03.21")
         self.setGeometry(0, 0, 1350, 768)
 
         main_widget = QWidget()
@@ -288,7 +299,7 @@ class MainWindow(QMainWindow):
 
         self.right_graph_layout = QVBoxLayout()
         right_widget_layout.addLayout(self.right_graph_layout, 3)
-        self.right_graph_layout.setContentsMargins(0, 0, 0, 1)
+        self.right_graph_layout.setContentsMargins(0, 0, 0, 0)
         self.right_graph_layout.setSpacing(0)
 
         self.right_vid_layout = QVBoxLayout()
@@ -411,10 +422,15 @@ class MainWindow(QMainWindow):
         self.update_view_menu()
 
     def restore_view(self, list_names):
-        for name in list(self.graph_widgets):
-            self.delete_graph_window(name)
-        for name in list_names:
-            self.create_graph_window(name)
+        for names in list(self.graph_widgets):
+            self.delete_graph_window(names)
+        for names in list_names:
+            if not all(name in list(self.data) for name in names):
+                QMessageBox.warning(
+                    self, 'Внимание', 'Присутствует неверное имя графика, пересохраните пресет'
+                )
+                continue
+            self.create_graph_window(names)
 
     def delete_view_from_settings(self, name):
         current_settings = self.settings.value('view_settings', {})
@@ -570,9 +586,13 @@ class LeftMenuTree(QTreeWidget):
             tree_category.setText(0, category)
             tree_category.setExpanded(True)
 
-            for name in column_data['headers']:
+            count = len(column_data['headers'])
+
+            for index in range(count):
                 column_widget = QTreeWidgetItem(tree_category)
-                column_widget.setText(0, name)
+                column_widget.setText(0, column_data['headers'][index])
+                if 'tooltip' in column_data:
+                    column_widget.setToolTip(0, column_data['tooltip'][index])
                 column_widget.setCheckState(0, Qt.CheckState.Unchecked)
                 self.widgets.append(column_widget)
 
@@ -601,7 +621,6 @@ class GraphWidget(pg.PlotWidget):
         self.main_window = main_window
         self.resolution = 1
         self.ox_cache = np.arange(self.resolution)
-
         self.region = pg.LinearRegionItem()
         self.region.sigRegionChanged.connect(self.update_region)
         self.addItem(self.region)
@@ -624,8 +643,10 @@ class GraphWidget(pg.PlotWidget):
         self.hLine.hide()
         self.addItem(self.vLine, ignoreBounds=True)
         self.addItem(self.hLine, ignoreBounds=True)
-
         self.create_graphs()
+
+        self.other_vLine = pg.InfiniteLine(angle=90, movable=False)
+        self.other_vLine.hide()
 
     def create_graphs(self):
         self.showGrid(x=True, y=True)
@@ -649,19 +670,20 @@ class GraphWidget(pg.PlotWidget):
     def mouse_moved(self, ev):
         if self.sceneBoundingRect().contains(ev):
             mousePoint = self.getPlotItem().vb.mapSceneToView(ev)
-            self.vLine.setPos(mousePoint)
             self.hLine.setPos(mousePoint)
-            self.vLine.show()
+            for widget in self.main_window.graph_widgets.values():
+                widget.vLine.setPos(mousePoint)
+                widget.vLine.show()
             self.hLine.show()
+
             curr_time = self.main_window.data.get_time(int(mousePoint.x()))
             self.setToolTip(
-                f'Текущий пакет: <b>{mousePoint.x():.3f}</b><br>'
+                f'Текущий пакет: <b>{int(mousePoint.x())}</b><br>'
                 + f'Текущее значение: <b>{mousePoint.y():.3f}</b><br>'
                 + f'Текущее время ДИСС: <b>{curr_time}</b><br>'
             )
 
     def leaveEvent(self, ev):
-        self.vLine.hide()
         self.hLine.hide()
         return super().leaveEvent(ev)
 
@@ -688,9 +710,6 @@ class GraphWidget(pg.PlotWidget):
         max_time = self.main_window.data.get_time(int(maxX))
         if not all((min_time, max_time)):
             return
-        # self.region_label.deleteLater()
-        # self.region_label = pg.InfLineLabel(
-        #     self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
         self.region_label.setText(f'Временной отрезок: {max_time - min_time}')
 
     def apply_theme(self, color):
@@ -724,7 +743,6 @@ class VidGraph(pg.PlotWidget):
     def __init__(self, main_window, pos=-1):
         super().__init__()
         self.main_window = main_window
-        self.curve = None
         self.pos = pos
         self.getAxis('left').setWidth(50)
         self.create_graphs()
@@ -743,10 +761,9 @@ class VidGraph(pg.PlotWidget):
 
         oy = data[self.pos] if len(data) else []
         ox = np.arange(len(oy))
-        curve = pg.PlotDataItem(ox, oy, name='vid_data',
-                                pen=pen, connect='all')
-        self.addItem(curve)
-        self.curve = curve
+        self.curve = pg.PlotDataItem(ox, oy, name='vid_data',
+                                     pen=pen, connect='all')
+        self.addItem(self.curve)
 
     def mouse_click_event(self, ev):
         if ev.button() == Qt.MouseButton.RightButton:
@@ -846,6 +863,10 @@ def launch():
         }
         QTreeView::indicator:checked {
             background-color: white;
+        }
+        GraphWidget {
+            border: 0px; 
+            border-bottom: 1px solid gray;
         }
     '''
 

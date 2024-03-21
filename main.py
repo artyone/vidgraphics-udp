@@ -167,7 +167,6 @@ class MainData:
             for name in category['headers']:
                 value = getattr(self, name)
                 del value[:-51_000]
-        self.counter = count()
 
     def get_object(self, name):
         return getattr(self, name)
@@ -190,10 +189,12 @@ class MainData:
         main_headers = self.categories['main']['headers']
         main_coef = self.categories['main']['coef']
         main_types = self.categories['main']['types']
+
         for index, (name, coef, type) in enumerate(zip(main_headers, main_coef, main_types)):
             self.add_data(name, res['data_main'][:, index].astype(type) * coef)
+
         self.add_data('time_src', res['time_src'][:, 0] * 0.002)
-        # self.add_data('time_src', [next(counter) / 50_000])
+
         for index, col in enumerate(self.categories['arinc']['headers']):
             self.add_data(col, res['arinc_data'][:, index])
 
@@ -205,16 +206,14 @@ class MainData:
         self.add_data('vid_data', res['vid_data'])
 
         counter = next(self.counter)
-        if counter > 5_000:
+        if counter > 20_000:
             self.cut_data()
+            self.counter = count()
 
     @staticmethod
     def unpack_bits(columns, data):
-        result = {}
-        for i, name in enumerate(columns):
-            result[name] = ((data & (1 << i)) >> i).astype(np.bool_)
+        result = {name:((data & (1 << i)) >> i) for i, name in enumerate(columns)}
         return result
-
 
 class UpdateGrapicsThread(QThread):
     update_signal = pyqtSignal()
@@ -474,8 +473,8 @@ class MainWindow(QMainWindow):
             if not self.update_data_threads.isRunning():
                 self.update_data_threads.start()
 
-            if not self.update_graphs_threads.isRunning():
-                self.update_graphs_threads.start()
+                if not self.update_graphs_threads.isRunning():
+                    self.update_graphs_threads.start()
 
             current_time = time.time()
             if current_time - self.last_ui_update_time >= self.ui_update_interval:
@@ -627,7 +626,7 @@ class GraphWidget(pg.PlotWidget):
         self.region.setZValue(10)
         self.region.hide()
         self.region_label = pg.InfLineLabel(
-            self.region.lines[0], '', position=0.75, rotateAxis=(0, 0), anchor=(1, 0))
+            self.region.lines[0], '', position=0.55, rotateAxis=(0, 0), anchor=(1, 0))
 
         self.curves = {}
         self.getAxis('left').setWidth(50)
@@ -638,7 +637,9 @@ class GraphWidget(pg.PlotWidget):
         self.scene().contextMenu.append(close_action)
 
         self.vLine = pg.InfiniteLine(angle=90, movable=False)
+        self.vLine.setZValue(10)
         self.hLine = pg.InfiniteLine(angle=0, movable=False)
+        self.hLine.setZValue(10)
         self.vLine.hide()
         self.hLine.hide()
         self.addItem(self.vLine, ignoreBounds=True)
@@ -710,7 +711,7 @@ class GraphWidget(pg.PlotWidget):
         max_time = self.main_window.data.get_time(int(maxX))
         if not all((min_time, max_time)):
             return
-        self.region_label.setText(f'Временной отрезок: {max_time - min_time}')
+        self.region_label.setText(f'Временной отрезок: {(max_time - min_time):.4f}')
 
     def apply_theme(self, color):
         self.setBackground(color)

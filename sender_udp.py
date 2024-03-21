@@ -86,6 +86,7 @@ b"\x00\xff\xf1\xab\xcd\x00\x2d\x96\x21\x00\x00\x00\x00\x00\x00\x00" \
 b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
 b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
+print(len(data) - 42)
 
 
 UDP_IP = "localhost"  # адрес назначения для broadcast
@@ -105,8 +106,9 @@ while True:
     # z = random.randint(0, 100)
 
 
-    sock.sendto(data[42:], (UDP_IP, UDP_PORT))
+    sock.sendto(np.random.randint(0, 256, size=1232, dtype=np.uint8).tobytes(), (UDP_IP, UDP_PORT))
+    # sock.sendto(data[42:], (UDP_IP, UDP_PORT))
     # print('сообщение отправлено', struct.unpack('>' + 'BBI' + 'B' * 31, packet))
     # print('сообщение отправлено', packet)
     # print('отправлено')
-    time.sleep(0.0001)
+    time.sleep(0.001)

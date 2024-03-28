@@ -1,4 +1,5 @@
 import os
+import pickle
 import sys
 import time
 from functools import partial
@@ -6,14 +7,15 @@ from itertools import count, cycle
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal, QSystemSemaphore, QSharedMemory
+from PyQt5.QtCore import (QSettings, QSharedMemory, QSystemSemaphore, Qt,
+                          QThread, QTimer, pyqtSignal)
 from PyQt5.QtGui import QColor, QIcon, QPalette, QPixmap
 from PyQt5.QtNetwork import QUdpSocket
-from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QHBoxLayout,
-                             QInputDialog, QLabel, QMainWindow, QMenu,
-                             QMessageBox, QPushButton, QSlider, QToolBar,
-                             QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                             QWidget)
+from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QFileDialog,
+                             QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+                             QMenu, QMessageBox, QPushButton, QSlider,
+                             QToolBar, QTreeWidget, QTreeWidgetItem,
+                             QVBoxLayout, QWidget)
 
 
 class MainData:
@@ -212,8 +214,10 @@ class MainData:
 
     @staticmethod
     def unpack_bits(columns, data):
-        result = {name:((data & (1 << i)) >> i) for i, name in enumerate(columns)}
+        result = {
+            name: ((data & (1 << i)) >> i) for i, name in enumerate(columns)}
         return result
+
 
 class UpdateGrapicsThread(QThread):
     update_signal = pyqtSignal()
@@ -279,7 +283,7 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("VID GRAPH UPD v.2024.03.21")
+        self.setWindowTitle("VID GRAPH UPD v.2024.03.28")
         self.setGeometry(0, 0, 1350, 768)
 
         main_widget = QWidget()
@@ -376,6 +380,15 @@ class MainWindow(QMainWindow):
         self.update_view_menu()
         toolbar.addSeparator()
 
+        button_save = QPushButton('Сохранить данные')
+        button_save.clicked.connect(self.save_data)
+        toolbar.addWidget(button_save)
+        toolbar.addSeparator()
+
+        button_open = QPushButton('Загрузить данные')
+        button_open.clicked.connect(self.open_data)
+        toolbar.addWidget(button_open)
+
         self.addToolBar(pos, toolbar)
 
     def clear_graphs(self):
@@ -419,6 +432,51 @@ class MainWindow(QMainWindow):
         current_values[text] = names_graph
         self.settings.setValue('view_settings', current_values)
         self.update_view_menu()
+
+    def save_data(self):
+        process_started = self.process_started
+        if process_started:
+            self.stop_process()
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить файл", "", "Pickle Files (*.pickle)", options=options)
+        if file_name:
+            try:
+                with open(file_name, 'wb') as f:
+                    pickle.dump(self.data, f)
+                    QMessageBox.information(
+                        self, 'Внимание', f'Данные сохранены в файл {file_name}'
+                    )
+            except:
+                QMessageBox.critical(
+                    self, 'Внимание', f'Не удалось записать файл {file_name}'
+                )
+        if process_started:
+            self.start_process()
+
+    def open_data(self):
+        process_started = self.process_started
+        if process_started:
+            self.stop_process()
+
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Открыть файл", "", "Pickle Files (*.pickle)", options=options)
+        if file_name:
+            try:
+                with open(file_name, 'rb') as f:
+                    data = pickle.load(f)
+                    self.data = data
+                    self.update_all_graphics()
+                QMessageBox.information(
+                    self, 'Внимание', f'Данные загружены из файла {file_name}'
+                )
+            except:
+                QMessageBox.critical(
+                    self, 'Внимание', f'Не удалось загрузить файл {file_name}'
+                )
+        if process_started:
+            self.start_process()
 
     def restore_view(self, list_names):
         for names in list(self.graph_widgets):
@@ -592,6 +650,8 @@ class LeftMenuTree(QTreeWidget):
                 column_widget.setText(0, column_data['headers'][index])
                 if 'tooltip' in column_data:
                     column_widget.setToolTip(0, column_data['tooltip'][index])
+                # column_widget.setData(0, Qt.UserRole, column_data['headers'][index])
+                # print(column_widget.data(0, Qt.UserRole))
                 column_widget.setCheckState(0, Qt.CheckState.Unchecked)
                 self.widgets.append(column_widget)
 
@@ -711,7 +771,9 @@ class GraphWidget(pg.PlotWidget):
         max_time = self.main_window.data.get_time(int(maxX))
         if not all((min_time, max_time)):
             return
-        self.region_label.setText(f'Временной отрезок: {(max_time - min_time):.4f}')
+        self.region_label.setText(
+            f'Временной отрезок: {(max_time - min_time):.4f}'
+        )
 
     def apply_theme(self, color):
         self.setBackground(color)
@@ -810,47 +872,47 @@ class VidGraph(pg.PlotWidget):
 
 def launch():
     app = QApplication(sys.argv)
+    
+    # window_id = 'vid_graphic_app'
+    # shared_mem_id = 'vid_graphic_mem'
+    # semaphore = QSystemSemaphore(window_id, 1)
+    # semaphore.acquire()
 
-    window_id = 'vid_graphic_app'
-    shared_mem_id = 'vid_graphic_mem'
-    semaphore = QSystemSemaphore(window_id, 1)
-    semaphore.acquire()
+    # if sys.platform != 'win32':
+    #     nix_fix_shared_mem = QSharedMemory(shared_mem_id)
+    #     if nix_fix_shared_mem.attach():
+    #         nix_fix_shared_mem.detach()
 
-    if sys.platform != 'win32':
-        nix_fix_shared_mem = QSharedMemory(shared_mem_id)
-        if nix_fix_shared_mem.attach():
-            nix_fix_shared_mem.detach()
+    # shared_memory = QSharedMemory(shared_mem_id)
 
-    shared_memory = QSharedMemory(shared_mem_id)
+    # if shared_memory.attach():  # attach a copy of the shared memory, if successful, the application is already running
+    #     is_running = True
+    # else:
+    #     shared_memory.create(1)  # allocate a shared memory block of 1 byte
+    #     is_running = False
 
-    if shared_memory.attach():  # attach a copy of the shared memory, if successful, the application is already running
-        is_running = True
-    else:
-        shared_memory.create(1)  # allocate a shared memory block of 1 byte
-        is_running = False
+    # semaphore.release()
 
-    semaphore.release()
-
-    if is_running:  # if the application is already running, show the warning message
-        QMessageBox.warning(None, 'Программа уже запущена',
-                            'Копия программы уже запущена. Используйте её, либо закройте.')
-        return
+    # if is_running:  # if the application is already running, show the warning message
+    #     QMessageBox.warning(None, 'Программа уже запущена',
+    #                         'Копия программы уже запущена. Используйте её, либо закройте.')
+    #     return
 
     app.setStyle('Fusion')
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(10, 10, 10))
-    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.WindowText, Qt.GlobalColor.white)
     palette.setColor(QPalette.Base, QColor(25, 25, 25))
     palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-    palette.setColor(QPalette.ToolTipBase, Qt.black)
-    palette.setColor(QPalette.ToolTipText, Qt.white)
-    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.ToolTipBase, Qt.GlobalColor.black)
+    palette.setColor(QPalette.ToolTipText, Qt.GlobalColor.white)
+    palette.setColor(QPalette.Text, Qt.GlobalColor.white)
     palette.setColor(QPalette.Button, QColor(53, 53, 53))
-    palette.setColor(QPalette.ButtonText, Qt.white)
-    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.ButtonText, Qt.GlobalColor.white)
+    palette.setColor(QPalette.BrightText, Qt.GlobalColor.red)
     palette.setColor(QPalette.Link, QColor(42, 130, 218))
     palette.setColor(QPalette.Highlight, QColor(142, 130, 218))
-    palette.setColor(QPalette.HighlightedText, Qt.black)
+    palette.setColor(QPalette.HighlightedText, Qt.GlobalColor.black)
     app.setPalette(palette)
     Stylesheet = '''
         QTreeView {

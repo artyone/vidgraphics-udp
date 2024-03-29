@@ -10,7 +10,7 @@ import pyqtgraph as pg
 from PyQt5.QtCore import (QSettings, QSharedMemory, QSystemSemaphore, Qt,
                           QThread, QTimer, pyqtSignal)
 from PyQt5.QtGui import QColor, QIcon, QPalette, QPixmap
-from PyQt5.QtNetwork import QUdpSocket
+from PyQt5.QtNetwork import QUdpSocket, QHostAddress
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QFileDialog,
                              QHBoxLayout, QInputDialog, QLabel, QMainWindow,
                              QMenu, QMessageBox, QPushButton, QSlider,
@@ -49,8 +49,8 @@ class MainData:
                 0.00244, 0.00244, 0.00244, 0.00488, 0.00244,
                 0.00244, 0.00488, 0.00244, 0.00244, 0.00244,
                 0.00244, 0.00244, 0.00244, 0.00244, 0.00244,
-                0.00488, 0.00747, 0.00488, 0.00244, 0.026851,
-                0.00244, 0.00488, 0.00244, 0.00244, 0.00244,
+                0.00488, 0.00244, 0.00488, 0.00244, 0.026851,
+                0.00747, 0.00488, 0.00244, 0.00244, 0.00244,
                 0.00488, 0.00244, 0.00244, 0.00244, 0.00244,
                 0.00244, 0.01,
             ],
@@ -195,7 +195,7 @@ class MainData:
         for index, (name, coef, type) in enumerate(zip(main_headers, main_coef, main_types)):
             self.add_data(name, res['data_main'][:, index].astype(type) * coef)
 
-        self.add_data('time_src', res['time_src'][:, 0] * 0.01)
+        self.add_data('time_src', res['time_src'][:, 0] * 0.02)
 
         for index, col in enumerate(self.categories['arinc']['headers']):
             self.add_data(col, res['arinc_data'][:, index])
@@ -541,6 +541,7 @@ class MainWindow(QMainWindow):
 
             self.last_update = time.time_ns()
 
+
     def update_data(self):
         if self.cache:
             self.data.add_byte_data(self.cache)
@@ -872,7 +873,7 @@ class VidGraph(pg.PlotWidget):
 
 def launch():
     app = QApplication(sys.argv)
-    
+
     # window_id = 'vid_graphic_app'
     # shared_mem_id = 'vid_graphic_mem'
     # semaphore = QSystemSemaphore(window_id, 1)

@@ -27,8 +27,8 @@ class MainData:
                 'EA', 'EH', 'current', 'signal_D', 'Unn',
                 'Una', 'D_analog', 'gamma', 'epsilon', 'psi',
                 'ARU', 'E_H_ap', 'E_g', 'E_v', 'E_A_ap',
-                'u_12V', 'rrch_acp', 'u_12V_m_018A', 'u_12V_m_018A_gnd', 'u_48V',
-                'u_48V_gnd', 'u_8V', 'u_8V_gnd', 'u_6V_m_0075A', 'u_6V_m_gnd',
+                'u_12V', 'u_48V_gnd', 'u_12V_m_018A', 'u_12V_m_018A_gnd', 'u_48V',
+                'rrch_acp', 'u_8V', 'u_8V_gnd', 'u_6V_m_0075A', 'u_6V_m_gnd',
                 'u_12V_0075A', 'u_12V_0075A_gnd', 'u_6V', 'u_6V_gnd', 'u_6V_m_028A',
                 'u_6V_m_028A_gnd', 'zad_izc'
             ],
@@ -49,8 +49,8 @@ class MainData:
                 0.00244, 0.00244, 0.00244, 0.00488, 0.00244,
                 0.00244, 0.00488, 0.00244, 0.00244, 0.00244,
                 0.00244, 0.00244, 0.00244, 0.00244, 0.00244,
-                0.00488, 0.00244, 0.00488, 0.00244, 0.026851,
-                0.00747, 0.00488, 0.00244, 0.00244, 0.00244,
+                0.00488, 0.00747, 0.00488, 0.00244, 0.026851,
+                0.00244, 0.00488, 0.00244, 0.00244, 0.00244,
                 0.00488, 0.00244, 0.00244, 0.00244, 0.00244,
                 0.00244, 0.01,
             ],
@@ -195,7 +195,7 @@ class MainData:
         for index, (name, coef, type) in enumerate(zip(main_headers, main_coef, main_types)):
             self.add_data(name, res['data_main'][:, index].astype(type) * coef)
 
-        self.add_data('time_src', res['time_src'][:, 0] * 0.002)
+        self.add_data('time_src', res['time_src'][:, 0] * 0.01)
 
         for index, col in enumerate(self.categories['arinc']['headers']):
             self.add_data(col, res['arinc_data'][:, index])
@@ -283,7 +283,7 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("VID GRAPH UPD v.2024.03.28")
+        self.setWindowTitle("VID GRAPH UPD v.2024.03.29")
         self.setGeometry(0, 0, 1350, 768)
 
         main_widget = QWidget()
@@ -741,7 +741,7 @@ class GraphWidget(pg.PlotWidget):
             self.setToolTip(
                 f'Текущий пакет: <b>{int(mousePoint.x())}</b><br>'
                 + f'Текущее значение: <b>{mousePoint.y():.3f}</b><br>'
-                + f'Текущее время ДИСС: <b>{curr_time}</b><br>'
+                + f'Текущее время: <b>{curr_time}</b><br>'
             )
 
     def leaveEvent(self, ev):
